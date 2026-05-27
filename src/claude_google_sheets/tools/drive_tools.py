@@ -305,7 +305,7 @@ class GetSpreadsheetInfoHandler(SheetsToolHandler):
                 drive_service.files()
                 .get(
                     fileId=spreadsheet_id,
-                    fields="id, name, createdTime, modifiedTime, owners, shared, webViewLink, size, parents",
+                    fields="id,name,createdTime,modifiedTime,owners,shared,webViewLink,parents",
                 )
                 .execute()
             )
@@ -349,7 +349,6 @@ class GetSpreadsheetInfoHandler(SheetsToolHandler):
                 "owners": owner_info,
                 "is_shared": drive_info.get("shared", False),
                 "web_link": drive_info.get("webViewLink", ""),
-                "size": drive_info.get("size", "0"),
                 "parent_folders": drive_info.get("parents", []),
                 "sheets": sheets_list,
                 "properties": sheets_info.get("properties", {}),

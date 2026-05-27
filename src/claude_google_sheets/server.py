@@ -16,6 +16,7 @@ from mcp.types import (
 
 from .auth.oauth_manager import GoogleSheetsAuth
 from .core.exceptions import AuthenticationError, GoogleSheetsMCPError
+from .tools.comments_tools import COMMENTS_HANDLERS
 from .tools.drive_tools import DRIVE_HANDLERS
 from .tools.sheets_tools import SHEETS_HANDLERS
 
@@ -48,6 +49,12 @@ def initialize_handlers(auth: GoogleSheetsAuth) -> None:
         handler = handler_class(auth)
         tool_handlers[handler.name] = handler
         logger.info(f"Registered sheets tool: {handler.name}")
+
+    # Initialize comments handlers (threaded Drive comments anchored to sheet cells)
+    for handler_class in COMMENTS_HANDLERS:
+        handler = handler_class(auth)
+        tool_handlers[handler.name] = handler
+        logger.info(f"Registered comments tool: {handler.name}")
 
 
 @app.list_tools()
