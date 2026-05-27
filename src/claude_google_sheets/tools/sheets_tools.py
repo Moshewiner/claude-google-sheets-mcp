@@ -1144,6 +1144,147 @@ class SetCellFormatHandler(SheetsToolHandler):
             return self.format_error_response(e)
 
 
+class CopyPasteFormatHandler(SheetsToolHandler):
+    """Copy formatting (only) from one range to another via the Sheets copyPaste API."""
+
+    def __init__(self, auth: GoogleSheetsAuth) -> None:
+        super().__init__(
+            name="copy_paste_format",
+            description=(
+                "Copy ONLY the formatting (colors, fonts, borders, number formats, alignment) "
+                "from a source range to a destination range. Values, formulas, and notes in the "
+                "destination are preserved. Useful for replicating the visual style of an existing "
+                "block when extending a structured sheet (e.g., adding a new month block that "
+                "matches the format of a previous month's block). The destination range can be "
+                "different in size from the source — Sheets repeats/clips the source pattern to "
+                "fit. Source and destination must be on the same spreadsheet (any tabs)."
+            ),
+        )
+        self.auth = auth
+
+    def get_tool_definition(self) -> Tool:
+        return Tool(
+            name=self.name,
+            description=self.description,
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "The ID of the spreadsheet",
+                    },
+                    "source_range": {
+                        "type": "string",
+                        "description": (
+                            "A1 notation for the source range whose formatting will be copied "
+                            "(e.g., \"'Sheet1'!A1:H17\"). Hebrew/non-ASCII tab names must be quoted."
+                        ),
+                    },
+                    "destination_range": {
+                        "type": "string",
+                        "description": (
+                            "A1 notation for the destination range that will receive the "
+                            "formatting (e.g., \"'Sheet1'!A20:H36\"). May be on a different tab."
+                        ),
+                    },
+                    "paste_orientation": {
+                        "type": "string",
+                        "description": (
+                            "Paste orientation. NORMAL (default) preserves the source layout; "
+                            "TRANSPOSE swaps rows and columns."
+                        ),
+                        "enum": ["NORMAL", "TRANSPOSE"],
+                        "default": "NORMAL",
+                    },
+                },
+                "required": ["spreadsheet_id", "source_range", "destination_range"],
+            },
+        )
+
+    async def execute(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        try:
+            spreadsheet_id: str = arguments["spreadsheet_id"]
+            source_range: str = arguments["source_range"]
+            dest_range: str = arguments["destination_range"]
+            paste_orientation: str = arguments.get("paste_orientation", "NORMAL")
+
+            src_sheet_name, src_start_row, src_end_row, src_start_col, src_end_col = (
+                _parse_a1_range(source_range)
+            )
+            dst_sheet_name, dst_start_row, dst_end_row, dst_start_col, dst_end_col = (
+                _parse_a1_range(dest_range)
+            )
+
+            sheets_service = self.auth.get_sheets_service()
+            src_sheet_id = _resolve_sheet_id(
+                sheets_service, spreadsheet_id, src_sheet_name
+            )
+            dst_sheet_id = _resolve_sheet_id(
+                sheets_service, spreadsheet_id, dst_sheet_name
+            )
+
+            request_body = {
+                "requests": [
+                    {
+                        "copyPaste": {
+                            "source": {
+                                "sheetId": src_sheet_id,
+                                "startRowIndex": src_start_row,
+                                "endRowIndex": src_end_row,
+                                "startColumnIndex": src_start_col,
+                                "endColumnIndex": src_end_col,
+                            },
+                            "destination": {
+                                "sheetId": dst_sheet_id,
+                                "startRowIndex": dst_start_row,
+                                "endRowIndex": dst_end_row,
+                                "startColumnIndex": dst_start_col,
+                                "endColumnIndex": dst_end_col,
+                            },
+                            "pasteType": "PASTE_FORMAT",
+                            "pasteOrientation": paste_orientation,
+                        }
+                    }
+                ]
+            }
+
+            result = (
+                sheets_service.spreadsheets()
+                .batchUpdate(spreadsheetId=spreadsheet_id, body=request_body)
+                .execute()
+            )
+
+            src_cells = (src_end_row - src_start_row) * (src_end_col - src_start_col)
+            dst_cells = (dst_end_row - dst_start_row) * (dst_end_col - dst_start_col)
+            response_data = {
+                "spreadsheet_id": result.get("spreadsheetId"),
+                "source_range": source_range,
+                "destination_range": dest_range,
+                "source_sheet_id": src_sheet_id,
+                "destination_sheet_id": dst_sheet_id,
+                "source_cells": src_cells,
+                "destination_cells": dst_cells,
+                "paste_type": "PASTE_FORMAT",
+            }
+
+            return self.format_success_response(
+                json.dumps(response_data, indent=2, ensure_ascii=False),
+                f"Copied formatting from {source_range} to {dest_range} ({dst_cells} cell(s) formatted)",
+            )
+
+        except HttpError as e:
+            if e.resp.status == 400:
+                raise InvalidRangeError(f"Invalid copy_paste_format request: {e.reason}")
+            elif e.resp.status == 404:
+                raise SheetsAPIError("Spreadsheet not found", 404)
+            else:
+                raise SheetsAPIError(f"Sheets API error: {e.reason}", e.resp.status)
+        except (InvalidRangeError, SheetsAPIError):
+            raise
+        except Exception as e:
+            return self.format_error_response(e)
+
+
 # Registry of all sheets tool handlers
 SHEETS_HANDLERS = [
     ListSheetTabsHandler,
@@ -1155,4 +1296,5 @@ SHEETS_HANDLERS = [
     ClearRangeHandler,
     AddCellNoteHandler,
     SetCellFormatHandler,
+    CopyPasteFormatHandler,
 ]
